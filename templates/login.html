@@ -15,7 +15,7 @@
         {% if error %}
             <div class="alert alert-danger">{{ error }}</div>
         {% endif %}
-        <form method="POST" action="{{ url_for('login_user') }}">
+        <form method="POST" action="{{ url_for('login_view') }}">
             <div class="form-group">
                 <label for="username">Nom d'utilisateur</label>
                 <input type="text" class="form-control" id="username" name="username" required>

@@ -25,6 +25,12 @@ from werkzeug.security import generate_password_hash, check_password_hash
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
 
+import logger_config  # Importer le fichier log.py
+
+print(logging.getLogger)  # Accéder à la variable
+print(logger_config.setup_logger())  # Appeler la fonction
+
+
 # Initialisation de l'application Flask
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
@@ -36,22 +42,29 @@ class User(db.Model):
     username = db.Column(db.String(80), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
+# Vérification de l'existence de la base de données avant de se connecter
+if not os.path.exists('carbon_footprint.db'):
+    logger.error(f"La base de données carbon_footprint.db n'existe pas.")
+    raise FileNotFoundError(f"La base de données carbon_footprint.db n'existe pas.")
+
 # Fonction pour insérer un utilisateur dans la base de données
 def ajouter_utilisateur(username, password):
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
-    
-    hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
-    
     try:
+        conn = sqlite3.connect('carbon_footprint.db')
+        cursor = conn.cursor()
+        
+        hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
+        
         cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", 
                        (username, hashed_password))
         conn.commit()
         flash("Compte créé avec succès!", "success")
-    except sqlite3.IntegrityError:
-        flash("Erreur: Ce nom d'utilisateur existe déjà.", "danger")
+    except sqlite3.Error as e:
+        logger.error(f"Erreur lors de la connexion à la base de données: {e}")
+        flash("Une erreur est survenue lors de l'ajout de l'utilisateur.", "danger")
     finally:
-        conn.close()
+        if conn:
+            conn.close()
         
 # Configuration de la base de données
 DATABASE = 'carbon_footprint.db'
@@ -68,15 +81,19 @@ FACTORS = {
 
 # Vérification des identifiants
 def verifier_utilisateur(username, password):
-    conn = sqlite3.connect('carbon_footprint.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
-    user = cursor.fetchone()
-    conn.close()
-    
-    if user and check_password_hash(user[0], password):
-        return True
-    return False
+    try:
+        conn = sqlite3.connect('carbon_footprint.db')
+        cursor = conn.cursor()
+        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
+        user = cursor.fetchone()
+        conn.close()
+        
+        if user and check_password_hash(user[0], password):
+            return True
+        return False
+    except sqlite3.Error as e:
+        logger.error(f"Erreur lors de la connexion à la base de données: {e}")
+        return False
 
 # Configuration du backend de Matplotlib avant d'importer pyplot
 import matplotlib
@@ -93,7 +110,7 @@ class User(UserMixin):
 # Configuration de Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login_user'
+login_manager.login_view = 'login_view'
 
 
 # Initialisation de Dash APRÈS Flask
@@ -108,7 +125,7 @@ dash_app = dash.Dash(
 def protect_dash_views(f):
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
-            return redirect(url_for('login_user'))
+            return redirect(url_for('login_view'))
         return f(*args, **kwargs)
     return wrapper
 
@@ -164,7 +181,7 @@ def index():
         return render_template('index.html', error='Une erreur est survenue lors de la récupération des données.')
 
 @app.route('/login', methods=['GET', 'POST'])
-def login_user():
+def login_view():  # Renommé pour éviter le conflit avec Flask-Login
     if current_user.is_authenticated:
         logger.info(f"L'utilisateur {current_user.username} est déjà connecté. Redirection vers l'index.")
         return redirect(url_for('index'))
@@ -172,7 +189,7 @@ def login_user():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        remember = request.form.get('remember') == 'on'
+        remember = request.form.get('remember') == 'on'  # Récupération de l'option "Se souvenir de moi"
         
         logger.debug(f"Tentative de connexion pour l'utilisateur: {username}")
         try:
@@ -185,9 +202,11 @@ def login_user():
                     logger.debug(f"Utilisateur trouvé: {user_data}")
                     if check_password_hash(user_data[2], password):
                         user = User(user_data[0], user_data[1], user_data[2])
-                        login_user(user, remember=remember)
+                        login_user(user)  # Appel correct sans argument supplémentaire
+                        if remember:
+                            session.permanent = True  # Rendre la session permanente si "Se souvenir de moi" est coché
                         logger.info(f"Connexion réussie pour l'utilisateur: {username}")
-                        return redirect(url_for('index'))
+                        return redirect(url_for('index'))  # Redirection vers index après connexion réussie
                     else:
                         logger.warning(f"Mot de passe incorrect pour l'utilisateur: {username}")
                 else:
@@ -222,7 +241,7 @@ def register():
                             (username, hashed_password))
                 conn.commit()
                 flash("Compte créé avec succès!", "success")
-                return redirect(url_for('login_user'))  # Redirige vers la page de connexion
+                return redirect(url_for('login_view'))  # Redirige vers la page de connexion
         except sqlite3.IntegrityError:
             return render_template('register.html', error="Ce nom d'utilisateur existe déjà.")
         except Exception as e:
@@ -236,7 +255,7 @@ def register():
 def logout():
     logger.info(f"L'utilisateur {current_user.username} se déconnecte.")
     logout_user()
-    return redirect(url_for('login_user'))
+    return redirect(url_for('login_view'))
 
 @app.route('/calculate', methods=['POST'])
 @login_required  # Assurez-vous que l'utilisateur est connecté
@@ -838,11 +857,10 @@ def init_db():
     conn.close()
 
 if __name__ == '__main__':
-    
-    
-    # Suppression de la base de données existante
-    if os.path.exists('carbon_footprint.db'):
-        os.remove('carbon_footprint.db')
+    # Suppression de la base de données existante (optionnel)
+    # Commenter ou supprimer cette ligne pour éviter la suppression à chaque démarrage
+    # if os.path.exists('carbon_footprint.db'):
+    #     os.remove('carbon_footprint.db')
     
     # Initialisation de la base de données
     with app.app_context():
