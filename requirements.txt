@@ -1,0 +1,11 @@
+dash
+dash-bootstrap-components
+plotly
+pandas
+matplotlib
+flask-login
+flask-cors
+fpdf
+xlsxwriter
+werkzeug 
+Flask-SQLAlchemy
