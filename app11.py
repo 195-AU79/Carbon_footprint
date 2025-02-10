@@ -35,11 +35,18 @@ print(logger_config.setup_logger())  # Appeler la fonction
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'your_secret_key'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///carbon_footprint.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-class User(db.Model):
+class carbon_footprint(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
+    password = db.Column(db.String(200), nullable=False)
+
+class User(UserMixin, db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
 # Vérification de l'existence de la base de données avant de se connecter
@@ -55,13 +62,16 @@ def ajouter_utilisateur(username, password):
         
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
         
-        cursor.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", 
+        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", 
                        (username, hashed_password))
         conn.commit()
         flash("Compte créé avec succès!", "success")
+    except sqlite3.IntegrityError:
+        logger.error(f"Le nom d'utilisateur {username} existe déjà.")
+        flash("Ce nom d'utilisateur est déjà pris. Veuillez en choisir un autre.", "danger")
     except sqlite3.Error as e:
         logger.error(f"Erreur lors de la connexion à la base de données: {e}")
-        flash("Une erreur est survenue lors de l'ajout de l'utilisateur.", "danger")
+        flash("Erreur lors de l'inscription. Veuillez réessayer.", "danger")
     finally:
         if conn:
             conn.close()
@@ -100,17 +110,19 @@ import matplotlib
 matplotlib.use('Agg')  # Utiliser le backend 'Agg' pour éviter les problèmes de GUI
 import matplotlib.pyplot as plt
 
-# Classe User pour Flask-Login
-class User(UserMixin):
-    def __init__(self, id, username, password_hash):
-        self.id = id
-        self.username = username
-        self.password_hash = password_hash
-
 # Configuration de Flask-Login
 login_manager = LoginManager()
 login_manager.init_app(app)
-login_manager.login_view = 'login_view'
+login_manager.login_view = "login_register"  # Nom de la vue de connexion
+
+@login_manager.user_loader
+def load_user(user_id):
+    return User.query.get(int(user_id))
+
+# Configuration de Flask-Login
+#login_manager = LoginManager()
+#login_manager.init_app(app)
+#login_manager.login_view = 'login_register'
 
 
 # Initialisation de Dash APRÈS Flask
@@ -125,7 +137,7 @@ dash_app = dash.Dash(
 def protect_dash_views(f):
     def wrapper(*args, **kwargs):
         if not current_user.is_authenticated:
-            return redirect(url_for('login_view'))
+            return redirect(url_for('login_register'))
         return f(*args, **kwargs)
     return wrapper
 
@@ -150,22 +162,6 @@ def get_db_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-@login_manager.user_loader
-def load_user(user_id):
-    logger.debug(f"Chargement de l'utilisateur avec ID: {user_id}")
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT id, username, password_hash FROM users WHERE id = ?', (user_id,))
-    user_data = cursor.fetchone()
-    conn.close()
-    
-    if user_data is None:
-        logger.warning(f"Aucun utilisateur trouvé avec ID: {user_id}")
-        return None
-    logger.debug(f"Utilisateur chargé: {user_data[1]}")
-    return User(user_data['id'], user_data['username'], user_data['password_hash'])
-
-# Configuration des routes Flask
 @app.route('/')
 @login_required
 def index():
@@ -181,72 +177,39 @@ def index():
         return render_template('index.html', error='Une erreur est survenue lors de la récupération des données.')
 
 @app.route('/login', methods=['GET', 'POST'])
-def login_view():  # Renommé pour éviter le conflit avec Flask-Login
-    if current_user.is_authenticated:
-        logger.info(f"L'utilisateur {current_user.username} est déjà connecté. Redirection vers l'index.")
-        return redirect(url_for('index'))
-
+def login_register():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        remember = request.form.get('remember') == 'on'  # Récupération de l'option "Se souvenir de moi"
         
-        logger.debug(f"Tentative de connexion pour l'utilisateur: {username}")
-        try:
-            with sqlite3.connect('carbon_footprint.db') as conn:
-                cur = conn.cursor()
-                cur.execute('SELECT * FROM users WHERE username = ?', (username,))
-                user_data = cur.fetchone()
-                
-                if user_data:
-                    logger.debug(f"Utilisateur trouvé: {user_data}")
-                    if check_password_hash(user_data[2], password):
-                        user = User(user_data[0], user_data[1], user_data[2])
-                        login_user(user)  # Appel correct sans argument supplémentaire
-                        if remember:
-                            session.permanent = True  # Rendre la session permanente si "Se souvenir de moi" est coché
-                        logger.info(f"Connexion réussie pour l'utilisateur: {username}")
-                        return redirect(url_for('index'))  # Redirection vers index après connexion réussie
-                    else:
-                        logger.warning(f"Mot de passe incorrect pour l'utilisateur: {username}")
-                else:
-                    logger.warning(f"Aucun utilisateur trouvé avec le nom: {username}")
-                
-                flash('Identifiants invalides', 'danger')
-                return render_template('login.html')
-        except Exception as e:
-            logger.error(f"Erreur lors de la connexion: {e}")
-            flash('Une erreur est survenue', 'danger')
-            return render_template('login.html')
-    
-    logger.debug("Affichage du formulaire de connexion.")
-    return render_template('login.html')
+        # Vérifiez si l'utilisateur existe
+        user = User.query.filter_by(username=username).first()
+        
+        if user and check_password_hash(user.password, password):
+            login_user(user)
+            return redirect(url_for('index'))  # Redirige vers la page d'index
+        else:
+            flash('Nom d\'utilisateur ou mot de passe incorrect.', 'danger')
+    return render_template('login.html')  # Affiche le formulaire de connexion
 
 @app.route('/register', methods=['GET', 'POST'])
 def register():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        confirm_password = request.form.get('confirm_password')
+        email = request.form.get('email')  # Ajout de l'email
 
-        if password != confirm_password:
-            return render_template('register.html', error="Les mots de passe ne correspondent pas.")
-
+        # Hashage du mot de passe
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
 
-        try:
-            with sqlite3.connect(DATABASE) as conn:
-                cur = conn.cursor()
-                cur.execute("INSERT INTO users (username, password_hash) VALUES (?, ?)", 
-                            (username, hashed_password))
-                conn.commit()
-                flash("Compte créé avec succès!", "success")
-                return redirect(url_for('login_view'))  # Redirige vers la page de connexion
-        except sqlite3.IntegrityError:
-            return render_template('register.html', error="Ce nom d'utilisateur existe déjà.")
-        except Exception as e:
-            logger.error(f"Erreur lors de l'inscription: {e}")
-            return render_template('register.html', error="Une erreur est survenue lors de l'inscription.")
+        # Ajoutez l'utilisateur à la base de données
+        new_user = User(username=username, email=email, password=hashed_password)
+        db.session.add(new_user)
+        db.session.commit()
+
+        # Message de confirmation
+        flash("Votre compte a été créé avec succès ! Vous pouvez maintenant vous connecter.", "success")
+        return redirect(url_for('login_register'))  # Redirige vers la page de connexion
 
     return render_template('register.html')  # Affiche le formulaire d'inscription
 
@@ -255,7 +218,7 @@ def register():
 def logout():
     logger.info(f"L'utilisateur {current_user.username} se déconnecte.")
     logout_user()
-    return redirect(url_for('login_view'))
+    return redirect(url_for('login_register'))  # Redirige vers la page de connexion
 
 @app.route('/calculate', methods=['POST'])
 @login_required  # Assurez-vous que l'utilisateur est connecté
@@ -283,7 +246,7 @@ def calculate():
                 logger.error(f"Le champ {field} doit être un nombre valide.")
                 return jsonify({'error': f'Le champ {field} doit être un nombre valide.'}), 400
 
-        # Calcul des émissions
+        # Calcul des émissions pour chaque source
         emissions = {
             'electricity': data['electricity'] * FACTORS['electricity'],
             'gasoline': data['gasoline'] * FACTORS['gasoline'],
@@ -292,6 +255,7 @@ def calculate():
             'flight': data['flight'] * FACTORS['flight']
         }
         
+        # Calcul du total des émissions
         total_emissions = sum(emissions.values())
 
         return jsonify({
@@ -699,6 +663,12 @@ def submit_results():
     natural_gas = request.form.get('natural_gas')
     flight = request.form.get('flight')
 
+    # Vérifiez que les champs ne sont pas None avant de les utiliser
+    if electricity is None or gasoline is None or diesel is None or natural_gas is None or flight is None:
+        logger.error("Un ou plusieurs champs sont manquants.")
+        flash("Tous les champs sont requis.", "danger")
+        return redirect(url_for('index'))  # Redirige vers la page d'index
+
     try:
         with sqlite3.connect(DATABASE) as conn:
             cur = conn.cursor()
@@ -711,6 +681,13 @@ def submit_results():
         flash("Une erreur est survenue lors de la soumission des résultats.", "danger")
 
     return redirect(url_for('index'))  # Redirige vers la page d'index
+
+@app.route('/routes')
+def list_routes():
+    routes = []
+    for rule in app.url_map.iter_rules():
+        routes.append((rule.endpoint, rule.rule))
+    return render_template('routes.html', routes=routes)
 
 # Configuration du layout Dash avec plusieurs pages
 dash_app.layout = html.Div([
@@ -784,34 +761,35 @@ def update_dashboard(graph_type):
         if df.empty:
             return {}, [], []
 
-        # Calcul des émissions
+        # Inverser l'ordre des lignes du DataFrame
+        df = df[::-1]  # Inverser le DataFrame
+
+        # Calcul des émissions pour chaque source
         for act in FACTORS.keys():
             df[f'{act}_emissions'] = df[act] * FACTORS[act]
 
+        # Calcul du total des émissions
+        df['total_emissions'] = df[[f'{act}_emissions' for act in FACTORS.keys()]].sum(axis=1)
+
+        # Supprimer les colonnes 'reduction_rate' et 'activity_growth'
+        df = df.drop(columns=['reduction_rate', 'activity_growth'])
+
+        # Réorganiser les colonnes pour mettre les colonnes de consommation à côté de leurs émissions
+        cols = []
+        for act in FACTORS.keys():
+            cols.append(act)  # Ajoute la colonne de consommation
+            cols.append(f'{act}_emissions')  # Ajoute la colonne d'émissions
+
+        # Ajouter 'id' et 'user_id' au début et 'total_emissions' à la fin
+        cols = ['id', 'user_id'] + cols + ['total_emissions']
+        df = df[cols]
+
         # Création du graphique
-        if graph_type == 'bar':
-            fig = px.bar(df, 
-                        x='id',
-                        y=[f'{act}_emissions' for act in FACTORS.keys()],
-                        title='Émissions de CO2 par source',
-                        labels={'value': 'kg CO2e', 'variable': 'Source'})
-        elif graph_type == 'pie':
-            total_emissions = {act: df[f'{act}_emissions'].sum() for act in FACTORS.keys()}
-            fig = px.pie(values=list(total_emissions.values()),
-                        names=list(total_emissions.keys()),
-                        title='Répartition des émissions de CO2')
-        elif graph_type == 'line':
-            fig = px.line(df,
-                         x='id',
-                         y=[f'{act}_emissions' for act in FACTORS.keys()],
-                         title='Évolution des émissions de CO2',
-                         labels={'value': 'kg CO2e', 'variable': 'Source'})
-        else:  # area
-            fig = px.area(df,
-                         x='id',
-                         y=[f'{act}_emissions' for act in FACTORS.keys()],
-                         title='Émissions cumulées de CO2',
-                         labels={'value': 'kg CO2e', 'variable': 'Source'})
+        fig = px.bar(df, 
+                     x='id',
+                     y=[f'{act}_emissions' for act in FACTORS.keys()],
+                     title='Émissions de CO2 par source',
+                     labels={'value': 'kg CO2e', 'variable': 'Source'})
 
         # Préparation des données pour le tableau
         table_data = df.to_dict('records')
