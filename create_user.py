@@ -16,7 +16,7 @@ hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
 try:
     # Insertion du nouvel utilisateur
     cursor.execute('''
-    INSERT INTO users (username, email, password)
+    INSERT INTO user (username, email, password)
     VALUES (?, ?, ?)
     ''', (username, email, hashed_password))
     
