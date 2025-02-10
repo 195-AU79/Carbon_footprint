@@ -857,11 +857,7 @@ def init_db():
     conn.close()
 
 if __name__ == '__main__':
-    # Suppression de la base de données existante (optionnel)
-    # Commenter ou supprimer cette ligne pour éviter la suppression à chaque démarrage
-    # if os.path.exists('carbon_footprint.db'):
-    #     os.remove('carbon_footprint.db')
-    
+ 
     # Initialisation de la base de données
     with app.app_context():
         init_db()
