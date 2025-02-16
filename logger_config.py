@@ -3,6 +3,8 @@ import logging.handlers
 import os
 from datetime import datetime
 
+from httpx import get
+
 # Création du dossier logs s'il n'existe pas
 if not os.path.exists('logs'):
     os.makedirs('logs')
@@ -93,7 +95,7 @@ def setup_logger():
 def log_request(response):
     logger = logging.getLogger('carbon_footprint.api')
     logger.info(
-        f'{request.remote_addr} - "{request.method} {request.full_path}" '
+        f'{get.remote_addr} - "{get.method} {get.full_path}" '
         f'{response.status_code}'
     )
     return response
@@ -102,8 +104,8 @@ def log_request(response):
 def log_error(error):
     logger = logging.getLogger('carbon_footprint')
     logger.error(
-        f'Error: {str(error)} - Route: {request.url} - '
-        f'Method: {request.method} - IP: {request.remote_addr}'
+        f'Error: {str(error)} - Route: {get.url} - '
+        f'Method: {get.method} - IP: {get.remote_addr}'
     )
 
 # Configuration des niveaux de log selon l'environnement

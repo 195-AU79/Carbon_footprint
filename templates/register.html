@@ -5,6 +5,77 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inscription</title>
     <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+
+        .container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 300px;
+            text-align: center;
+        }
+
+        h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            text-align: left;
+            color: #555;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="email"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px;
+            background-color: #5cb85c;
+            border: none;
+            border-radius: 4px;
+            color: white;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background-color: #4cae4c;
+        }
+
+        p {
+            margin-top: 15px;
+            color: #777;
+        }
+
+        a {
+            color: #5cb85c;
+            text-decoration: none;
+        }
+
+        a:hover {
+            text-decoration: underline;
+        }
+    </style>
 </head>
 <body>
     <div class="container">
@@ -20,17 +91,23 @@
         {% endwith %}
         
         <form method="POST" action="{{ url_for('register') }}">
-            <div class="form-group">
-                <label for="username">Nom d'utilisateur</label>
-                <input type="text" class="form-control" id="username" name="username" required>
-            </div>
-            <div class="form-group">
-                <label for="password">Mot de passe</label>
-                <input type="password" class="form-control" id="password" name="password" required>
-            </div>
+            <form method="POST" action="{{ url_for('register') }}">
+                <div>
+                    <slabel for="username">Nom d'utilisateur</slabel>
+                    <input type="text" name="username" autocomplete="username" required>
+                </div>
+                <div>
+                    <label for="email">Email</label>
+                    <input type="email" name="email" autocomplete="email" required>
+                </div>
+                <div>
+                    <label for="password">Mot de passe</label>
+                    <input type="password" name="password" autocomplete="new-password" required>
+                </div>
+            </form>
             <button type="submit" class="btn btn-primary">S'inscrire</button>
         </form>
-        <p>Déjà un compte ? <a href="{{ url_for('login_view') }}">Se connecter</a></p>
+        <p>Déjà un compte ? <a href="{{ url_for('login_register') }}">Se connecter</a></p>
     </div>
 </body>
 </html> 
