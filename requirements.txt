@@ -1,3 +1,4 @@
+Flask
 dash
 dash-bootstrap-components
 plotly
@@ -7,5 +8,5 @@ flask-login
 flask-cors
 fpdf
 xlsxwriter
-werkzeug 
+werkzeug
 Flask-SQLAlchemy
