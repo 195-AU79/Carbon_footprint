@@ -13,10 +13,9 @@ import plotly.express as px
 import xlsxwriter
 from dash import dcc, html, dash_table
 from dash.dependencies import Input, Output
-from flask import Flask, jsonify, render_template, request, send_file, redirect, url_for, flash
+from flask import Flask, jsonify, render_template, request, send_file, redirect, url_for, flash, session
 from fpdf import FPDF
 from flask_cors import CORS
-from flask import Flask, render_template, request, redirect, url_for, flash, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -38,21 +37,13 @@ app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///carbon_footprint.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 
-class carbon_footprint(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password = db.Column(db.String(200), nullable=False)
-
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     email = db.Column(db.String(120), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
 
-# Vérification de l'existence de la base de données avant de se connecter
-if not os.path.exists('carbon_footprint.db'):
-    logger.error(f"La base de données carbon_footprint.db n'existe pas.")
-    raise FileNotFoundError(f"La base de données carbon_footprint.db n'existe pas.")
+# La base de données sera initialisée dans init_db() si elle n'existe pas
 
 # Fonction pour insérer un utilisateur dans la base de données
 def ajouter_utilisateur(username, password):
@@ -62,8 +53,8 @@ def ajouter_utilisateur(username, password):
         
         hashed_password = generate_password_hash(password, method='pbkdf2:sha256')
         
-        cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", 
-                       (username, hashed_password))
+        cursor.execute("INSERT INTO user (username, email, password) VALUES (?, ?, ?)", 
+                       (username, '', hashed_password))
         conn.commit()
         flash("Compte créé avec succès!", "success")
     except sqlite3.IntegrityError:
@@ -94,7 +85,7 @@ def verifier_utilisateur(username, password):
     try:
         conn = sqlite3.connect('carbon_footprint.db')
         cursor = conn.cursor()
-        cursor.execute("SELECT password FROM users WHERE username = ?", (username,))
+        cursor.execute("SELECT password FROM user WHERE username = ?", (username,))
         user = cursor.fetchone()
         conn.close()
         
@@ -268,13 +259,16 @@ def calculate():
         return jsonify({'error': 'Une erreur est survenue lors du calcul.'}), 500
 
 @app.route('/download_excel')
+@login_required
 def download_excel_file():
     """Route pour télécharger les données au format Excel avec graphiques natifs (Excel) dans une seconde feuille."""
     try:
         logger.debug("Début de la génération du fichier Excel.")
         # Charger les données depuis la base de données
+        conn = get_db_connection()
         df = pd.read_sql_query('SELECT * FROM results WHERE user_id = ?', 
-                                 get_db_connection(), params=(current_user.id,))
+                                 conn, params=(current_user.id,))
+        conn.close()
         if df.empty:
             logger.debug("Aucune donnée disponible pour l'Excel.")
             return "Aucune donnée disponible.", 404
@@ -407,13 +401,16 @@ def download_excel_file():
         return f"Erreur lors du téléchargement du fichier Excel : {str(e)}", 500
 
 @app.route('/download_pdf')
+@login_required
 def download_pdf_file():
     """Route pour télécharger les données au format PDF avec graphiques."""
     try:
         logger.debug("Début de la génération du PDF.")
         # Charger les données depuis la base de données
+        conn = get_db_connection()
         df = pd.read_sql_query('SELECT * FROM results WHERE user_id = ?', 
-                                 get_db_connection(), params=(current_user.id,))
+                                 conn, params=(current_user.id,))
+        conn.close()
         if df.empty:
             logger.debug("Aucune donnée disponible pour le PDF.")
             return "Aucune donnée disponible.", 404
@@ -802,36 +799,36 @@ def update_dashboard(graph_type):
         return {}, [], []
 
 def init_db():
+    """Initialise la base de données avec les tables nécessaires."""
+    # Créer toutes les tables définies dans les modèles SQLAlchemy
+    with app.app_context():
+        db.create_all()
+    
+    # Créer également la table results avec les colonnes supplémentaires si elle n'existe pas
     conn = get_db_connection()
     cursor = conn.cursor()
     
-    # Création de la table users
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL
-    )
-    ''')
+    # Vérifier si la table results existe déjà
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='results'")
+    if not cursor.fetchone():
+        # Création de la table results avec toutes les colonnes nécessaires
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS results (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            electricity REAL,
+            gasoline REAL,
+            diesel REAL,
+            natural_gas REAL,
+            flight REAL,
+            total_emissions REAL,
+            reduction_rate REAL DEFAULT 0,
+            activity_growth REAL DEFAULT 0,
+            FOREIGN KEY (user_id) REFERENCES user(id)
+        )
+        ''')
+        conn.commit()
     
-    # Création de la table results
-    cursor.execute('''
-    CREATE TABLE IF NOT EXISTS results (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        electricity REAL,
-        gasoline REAL,
-        diesel REAL,
-        natural_gas REAL,
-        flight REAL,
-        total_emissions REAL,
-        reduction_rate REAL DEFAULT 0,
-        activity_growth REAL DEFAULT 0,
-        FOREIGN KEY (user_id) REFERENCES users(id)
-    )
-    ''')
-    
-    conn.commit()
     conn.close()
 
 if __name__ == '__main__':

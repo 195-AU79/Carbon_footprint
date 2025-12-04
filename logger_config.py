@@ -91,6 +91,7 @@ def setup_logger():
 
 # Fonction pour journaliser les requêtes HTTP
 def log_request(response):
+    from flask import request
     logger = logging.getLogger('carbon_footprint.api')
     logger.info(
         f'{request.remote_addr} - "{request.method} {request.full_path}" '
@@ -100,6 +101,7 @@ def log_request(response):
 
 # Fonction pour journaliser les erreurs
 def log_error(error):
+    from flask import request
     logger = logging.getLogger('carbon_footprint')
     logger.error(
         f'Error: {str(error)} - Route: {request.url} - '

@@ -112,7 +112,7 @@
                 <a href="/dash/" class="btn btn-primary">Tableau de bord</a>
                 <a href="{{ url_for('logout') }}" class="btn btn-danger">Déconnexion</a>
             {% else %}
-                <a href="{{ url_for('login_view') }}" class="btn btn-primary">Se connecter</a>
+                <a href="{{ url_for('login_register') }}" class="btn btn-primary">Se connecter</a>
                 <a href="{{ url_for('register') }}" class="btn btn-secondary">S'inscrire</a>
             {% endif %}
         </div>
@@ -167,7 +167,8 @@
         {% endif %}
     </div>
     <script>
-        document.getElementById('carbonForm').addEventListener('submit', async function(e) {
+        // Script pour le calcul en temps réel (optionnel)
+        // Le formulaire principal utilise submit_results pour sauvegarder les données
             e.preventDefault();
             const data = {
                 electricity: parseFloat(document.getElementById('electricity').value) || 0,

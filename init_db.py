@@ -32,7 +32,7 @@ def init_db():
             total_emissions REAL,
             reduction_rate REAL DEFAULT 0,
             activity_growth REAL DEFAULT 0,
-            FOREIGN KEY (user_id) REFERENCES users(id)
+            FOREIGN KEY (user_id) REFERENCES user(id)
         )
         ''')
         
